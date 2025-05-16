@@ -80,6 +80,7 @@ func topHandler(conn net.Conn) {
 		fmt.Println(err)
 		return
 	}
+
 	//close connection
 	defer func(conn net.Conn) {
 		err := conn.Close()
