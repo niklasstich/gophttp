@@ -1,6 +1,9 @@
 package http
 
+//go:generate stringer -type=Method
 type Method int
+
+//go:generate stringer -type=Version
 type Version int
 
 const (
