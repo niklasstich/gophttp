@@ -1,0 +1,145 @@
+package common
+
+import (
+	"testing"
+)
+
+func TestRadixTree_Find(t *testing.T) {
+	// Create a RadixTree with some nodes
+	tree := RadixTree[int]{
+		Node: &RadixTreeNode[int]{
+			Data:    0,
+			HasData: false,
+			Children: []*RadixTreeEdge[int]{
+				{
+					Label: RadixTreeStringLabel{Label: "home"},
+					Node: &RadixTreeNode[int]{
+						Data:    1,
+						HasData: true,
+						Children: []*RadixTreeEdge[int]{
+							{
+								Label: RadixTreeStringLabel{Label: "/"},
+								Node: &RadixTreeNode[int]{
+									Data: 0,
+									Children: []*RadixTreeEdge[int]{
+										{
+											Label: RadixTreeStringLabel{Label: "about"},
+											Node: &RadixTreeNode[int]{
+												Data:    2,
+												HasData: true,
+											},
+										},
+										{
+											Label: RadixTreeStringLabel{Label: "contact"},
+											Node: &RadixTreeNode[int]{
+												Data:    3,
+												HasData: true,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					Label: RadixTreeStringLabel{Label: "api"},
+					Node: &RadixTreeNode[int]{
+						HasData: false,
+						Children: []*RadixTreeEdge[int]{
+							{
+								Label: RadixTreeStringLabel{Label: "/"},
+								Node: &RadixTreeNode[int]{
+									HasData: false,
+									Children: []*RadixTreeEdge[int]{
+										{
+											Label: RadixTreeVariableLabel{VariableName: "resource"},
+											Node: &RadixTreeNode[int]{
+												Data:    5,
+												HasData: true,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Test cases
+	tests := []struct {
+		path     string
+		expected int
+	}{
+		{"home", 1},
+		{"home/", 1},
+		{"home/about", 2},
+		{"home/contact", 3},
+		{"home/contact/", 3},
+		{"api", -1}, //HasData = false
+		{"api/", -1},
+		{"api/users", 5},
+		{"api/products", 5},
+		{"api/endwithslash/", 5},
+		{"unknown", -1}, // No match
+		{"", -1},
+	}
+
+	for _, test := range tests {
+		node, err := tree.Find(test.path)
+		if err != nil {
+			if test.expected != -1 {
+				t.Errorf("unexpected error for path %s: %v", test.path, err)
+			}
+		} else if node.Data != test.expected {
+			t.Errorf("expected %d for path %s, got %d", test.expected, test.path, node.Data)
+		}
+	}
+}
+
+func TestRadixTree_Insert(t *testing.T) {
+	tree := RadixTree[int]{Node: &RadixTreeNode[int]{0, false, []*RadixTreeEdge[int]{}}}
+
+	tests := []struct {
+		path     string
+		data     int
+		expected error
+	}{
+		{path: "home/", data: 1, expected: nil},                  // Insert into empty tree
+		{path: "home/about/", data: 2, expected: nil},            // Insert with shared prefix
+		{path: "home/contact/", data: 3, expected: nil},          // Insert another branch
+		{path: "home/", data: 1, expected: ErrPathAlreadyExists}, // Insert duplicate path
+		{path: "api/users/", data: 4, expected: nil},             // Insert new branch
+		{path: "api/products/", data: 5, expected: nil},          // Insert with shared prefix
+		{path: "api/", data: 6, expected: nil},                   // Insert shorter prefix
+	}
+
+	toCheck := []struct {
+		path     string
+		data     int
+		expected error
+	}{}
+
+	for _, test := range tests {
+		err := tree.Insert(test.path, test.data)
+		if err != test.expected {
+			t.Errorf("Insert(%q, %d): expected error %v, got %v", test.path, test.data, test.expected, err)
+		}
+		if test.expected == nil {
+			toCheck = append(toCheck, test)
+		}
+
+		// Verify lookup of all elements inserted so far
+		for _, test := range toCheck {
+			node, err := tree.Find(test.path)
+			if err != nil {
+				t.Errorf("Find(%q): unexpected error after insertion: %v", test.path, err)
+			} else if node.Data != test.data {
+				t.Errorf("Find(%q): expected data %d, got %d", test.path, test.data, node.Data)
+			}
+		}
+	}
+}
