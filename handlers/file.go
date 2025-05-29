@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"http/http"
+	"gophttp/http"
 	"os"
 	"strings"
 )

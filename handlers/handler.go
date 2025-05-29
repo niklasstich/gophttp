@@ -1,6 +1,6 @@
 package handlers
 
-import "http/http"
+import "gophttp/http"
 
 type Handler interface {
 	HandleRequest(req http.Request, resp *http.Response) error
