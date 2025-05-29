@@ -9,6 +9,10 @@ type RadixTree[T any] struct {
 	Node *RadixTreeNode[T]
 }
 
+func NewRadixTree[T any]() *RadixTree[T] {
+	return &RadixTree[T]{&RadixTreeNode[T]{Children: make([]*RadixTreeEdge[T], 0)}}
+}
+
 type Radix[T any] interface {
 	Find(path string) (*RadixTreeNode[T], error)
 	Insert(path string, node *RadixTreeNode[T]) error
