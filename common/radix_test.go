@@ -75,16 +75,16 @@ func TestRadixTree_Find(t *testing.T) {
 		expected int
 	}{
 		{"home", 1},
-		{"home/", 1},
+		{"home/", -1},
 		{"home/about", 2},
 		{"home/contact", 3},
-		{"home/contact/", 3},
-		{"api", -1}, //HasData = false
+		{"home/contact/", -1},
+		{"api", -1},
 		{"api/", -1},
 		{"api/users", 5},
 		{"api/products", 5},
 		{"api/endwithslash/", 5},
-		{"unknown", -1}, // No match
+		{"unknown", -1},
 		{"", -1},
 	}
 

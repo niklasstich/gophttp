@@ -24,7 +24,7 @@ var ErrPathAlreadyExists = fmt.Errorf("path already exists")
 
 func (r RadixTree[T]) Find(path string) (*RadixTreeNode[T], error) {
 	currNode := r.Node
-	for len(path) > 0 && !(len(path) == 1 && path[0] == '/') {
+	for len(path) > 0 {
 		var err error
 		currNode, path, err = findNextNode(currNode, path)
 		if err != nil {
