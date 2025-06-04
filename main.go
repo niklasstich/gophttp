@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -39,9 +40,21 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	dirs, err := common.ListDirsRecursive(pwd)
+	if err != nil {
+		panic(err)
+	}
 
 	for _, file := range files {
 		err = addFileRoute(routes, file)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	//range over every directory and create a dir handler
+	for _, dir := range dirs {
+		err = addDirRoute(routes, dir)
 		if err != nil {
 			panic(err)
 		}
@@ -53,7 +66,12 @@ func main() {
 		panic(err)
 	}
 
-	defer sock.Close()
+	defer func(sock net.Listener) {
+		err := sock.Close()
+		if err != nil {
+			fmt.Printf("error while closing socket: %v", err)
+		}
+	}(sock)
 
 	for {
 		select {
@@ -68,10 +86,18 @@ func main() {
 }
 
 func addFileRoute(routes *common.RadixTree[handlers.Handler], file string) error {
-	parts := strings.Split(file, string(os.PathSeparator))
-	path := strings.Join(parts, "/")
-	path = fmt.Sprintf("/%s/", path)
+	path := http.GetHttpPathForFilepath(file)
 	err := routes.Insert(path, handlers.NewFileHandler(file))
+	return err
+}
+
+func addDirRoute(routes *common.RadixTree[handlers.Handler], dir string) error {
+	path := http.GetHttpPathForFilepath(dir)
+	handler, err := handlers.NewDirectoryHandler(dir)
+	if err != nil {
+		return err
+	}
+	err = routes.Insert(path, handler)
 	return err
 }
 
@@ -103,11 +129,11 @@ func handleConnection(conn net.Conn) {
 			fmt.Println(err)
 		}
 	}(conn)
-	//queue writing response to connection (we must always answer with at least something, no matter how hard we error out)
-	defer writeResponseToConn(resp, conn)
 
 	//parse the request
 	req, err := http.ParseRequest(conn)
+	//queue writing response to connection (we must always answer with at least something, no matter how hard we error out)
+	defer writeResponseToConn(req, resp, conn)
 	if err != nil {
 		if errors.Is(err, http.ErrInvalidRequest) {
 			err := handlers.BadRequestHandler(req, resp)
@@ -154,13 +180,18 @@ func handleConnection(conn net.Conn) {
 	}
 }
 
-func writeResponseToConn(resp *http.Response, conn net.Conn) {
+func writeResponseToConn(req http.Request, resp *http.Response, conn net.Conn) {
 	err := resp.WriteToConn(conn)
 	if err == nil {
 		return
 	}
-	err = fmt.Errorf("error writing response to conn: %w", err)
-	if err != nil {
-		panic(err)
+	if errors.Is(err, net.ErrClosed) {
+		fmt.Println("tried writing to closed connection: %w", err)
+		return
 	}
+	if errors.Is(err, syscall.EPIPE) {
+		fmt.Println("tried writing to broken pipe: %w", err)
+		return
+	}
+	panic(err)
 }
