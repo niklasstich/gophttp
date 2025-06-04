@@ -17,6 +17,7 @@ type Radix[T any] interface {
 	Find(path string) (*RadixTreeNode[T], error)
 	Insert(path string, node *RadixTreeNode[T]) error
 	Delete(path string) error
+	Nodes() int
 }
 
 var ErrNoMatch = fmt.Errorf("no match found")
@@ -71,6 +72,7 @@ func (r RadixTree[T]) Insert(path string, data T) error {
 			//simply add data to existing node
 			currNode.Data = data
 			currNode.HasData = true
+			return nil
 		}
 	}
 	//if children exist, see if any child has a matching prefix and find the longest prefix that still matches
@@ -88,18 +90,34 @@ func (r RadixTree[T]) Insert(path string, data T) error {
 			//we found a match, edit current edge to be the prefix and add two new nodes for the suffixes
 			existingNodeSuffix := strings.TrimPrefix(e.Label, matchedPrefix)
 			newNodeSuffix := strings.TrimPrefix(path, matchedPrefix)
+			if len(newNodeSuffix) == 0 {
+				//existing node will now have data instead of creating an empty "" label edge
+				existingNodeReplacement := RadixTreeNode[T]{child.Node.Data, child.Node.HasData, child.Node.Children}
+				existingEdge := RadixTreeEdge[T]{RadixTreeStringLabel{existingNodeSuffix}, &existingNodeReplacement}
+				newChildren := []*RadixTreeEdge[T]{&existingEdge}
 
-			//add nodes
-			existingNodeReplacement := RadixTreeNode[T]{child.Node.Data, child.Node.HasData, child.Node.Children}
-			newNode := RadixTreeNode[T]{data, true, []*RadixTreeEdge[T]{}}
-			existingEdge := RadixTreeEdge[T]{RadixTreeStringLabel{existingNodeSuffix}, &existingNodeReplacement}
-			newEdge := RadixTreeEdge[T]{RadixTreeStringLabel{newNodeSuffix}, &newNode}
-			newChildren := []*RadixTreeEdge[T]{&existingEdge, &newEdge}
+				child.Node.HasData = true
+				child.Node.Data = data
+				child.Node.Children = newChildren
+				//we have to also change the label
+				child.Label = RadixTreeStringLabel{matchedPrefix}
+				return nil
+			} else {
+				//create replacement for current child which will become child of a new node
+				existingNodeReplacement := RadixTreeNode[T]{child.Node.Data, child.Node.HasData, child.Node.Children}
+				//create the new node itself
+				newNode := RadixTreeNode[T]{data, true, []*RadixTreeEdge[T]{}}
+				//override current edge with a new edge
+				existingEdge := RadixTreeEdge[T]{RadixTreeStringLabel{existingNodeSuffix}, &existingNodeReplacement}
+				newEdge := RadixTreeEdge[T]{RadixTreeStringLabel{newNodeSuffix}, &newNode}
+				newChildren := []*RadixTreeEdge[T]{&existingEdge, &newEdge}
 
-			child.Node.HasData = false
-			child.Node.Children = newChildren
-			child.Label = RadixTreeStringLabel{matchedPrefix}
-			return nil
+				child.Node.HasData = false
+				child.Node.Children = newChildren
+				child.Label = RadixTreeStringLabel{matchedPrefix}
+				return nil
+			}
+
 		}
 	}
 
@@ -114,6 +132,28 @@ func (r RadixTree[T]) Insert(path string, data T) error {
 func (r RadixTree[T]) Delete(path string) error {
 	//TODO implement me
 	panic("implement me")
+}
+
+func (r RadixTree[T]) Nodes() int {
+	currNode := r.Node
+	count := 0
+	nodesToCheck := make([]*RadixTreeNode[T], 0)
+	for {
+		count += len(currNode.Children)
+		for _, child := range currNode.Children {
+			nodesToCheck = append(nodesToCheck, child.Node)
+		}
+		if len(nodesToCheck) == 1 {
+			currNode, nodesToCheck = nodesToCheck[0], make([]*RadixTreeNode[T], 0)
+			continue
+		}
+		if len(nodesToCheck) > 0 {
+			currNode, nodesToCheck = nodesToCheck[0], nodesToCheck[1:]
+			continue
+		}
+		break
+	}
+	return count
 }
 
 type RadixTreeEdge[T any] struct {
