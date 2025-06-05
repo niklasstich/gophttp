@@ -202,11 +202,15 @@ func writeResponseToConn(resp *http.Response, conn net.Conn) {
 		return
 	}
 	if errors.Is(err, net.ErrClosed) {
-		fmt.Println("tried writing to closed connection: %w", err)
+		fmt.Println("tried writing to closed connection: ", err)
 		return
 	}
 	if errors.Is(err, syscall.EPIPE) {
-		fmt.Println("tried writing to broken pipe: %w", err)
+		fmt.Println("tried writing to broken pipe: ", err)
+		return
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		fmt.Println("connection reset: ", err)
 		return
 	}
 	panic(err)
