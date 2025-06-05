@@ -27,10 +27,10 @@ type directoryHandler struct {
 	HtmlPage string
 }
 
-func (d directoryHandler) HandleRequest(_ http.Request, resp *http.Response) error {
-	resp.Body = d.HtmlPage
-	resp.Status = http.StatusOK
-	resp.Headers = append(resp.Headers, http.Header{
+func (d directoryHandler) HandleRequest(ctx http.Context) error {
+	ctx.Response.Body = d.HtmlPage
+	ctx.Response.Status = http.StatusOK
+	ctx.Response.AddHeader(http.Header{
 		Name:  "MIME",
 		Value: "text/html",
 	})

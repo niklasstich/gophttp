@@ -3,25 +3,25 @@ package handlers
 import "gophttp/http"
 
 type Handler interface {
-	HandleRequest(req http.Request, resp *http.Response) error
+	HandleRequest(ctx http.Context) error
 }
 
-type HandlerFunc func(req http.Request, resp *http.Response)
+type HandlerFunc func(ctx http.Context) error
 
-func (h HandlerFunc) HandleRequest(req http.Request, resp *http.Response) error {
-	return h.HandleRequest(req, resp)
+func (h HandlerFunc) HandleRequest(ctx http.Context) error {
+	return h.HandleRequest(ctx)
 }
 
 type composedHandler struct {
 	h1, h2 Handler
 }
 
-func (c composedHandler) HandleRequest(req http.Request, resp *http.Response) error {
-	err := c.h1.HandleRequest(req, resp)
+func (c composedHandler) HandleRequest(ctx http.Context) error {
+	err := c.h1.HandleRequest(ctx)
 	if err != nil {
 		return err
 	}
-	err = c.h2.HandleRequest(req, resp)
+	err = c.h2.HandleRequest(ctx)
 	return err
 }
 
@@ -29,32 +29,21 @@ func ComposeHandlers(h1, h2 Handler) Handler {
 	return composedHandler{h1, h2}
 }
 
-func NotFoundHandler(_ http.Request, resp *http.Response) error {
-	resp.Status = http.StatusNotFound
-	resp.Body = "Page doesn't exist"
-	resp.Headers = append(resp.Headers, http.Header{
+func NotFoundHandler(ctx http.Context) error {
+	ctx.Response.Status = http.StatusNotFound
+	ctx.Response.Body = "Page doesn't exist"
+	ctx.Response.AddHeader(http.Header{
 		Name:  "MIME",
 		Value: "text/plain",
 	})
 	return nil
 }
 
-func BadRequestHandler(req http.Request, resp *http.Response) error {
-	resp.Status = http.StatusBadRequest
-	//TODO: write reason for bad request
-	resp.Body = "Bad request"
-	resp.Headers = append(resp.Headers, http.Header{
-		Name:  "MIME",
-		Value: "text/plain",
-	})
-	return nil
-}
-
-func InternalServerErrorHandler(req http.Request, resp *http.Response) error {
-	resp.Status = http.StatusInternalServerError
+func InternalServerErrorHandler(ctx http.Context) error {
+	ctx.Response.Status = http.StatusInternalServerError
 	//TODO: (maybe?) write reason for internal server error
-	resp.Body = "Internal server error"
-	resp.Headers = append(resp.Headers, http.Header{
+	ctx.Response.Body = "Internal server error"
+	ctx.Response.AddHeader(http.Header{
 		Name:  "MIME",
 		Value: "text/plain",
 	})

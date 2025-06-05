@@ -3,7 +3,6 @@ package http
 import (
 	"bufio"
 	"fmt"
-	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,13 +22,39 @@ type Header struct {
 }
 
 var ErrInvalidRequest = fmt.Errorf("invalid HTTP request format")
+var ErrInvalidHttpMethod = fmt.Errorf("invalid HTTP method")
+var ErrInvalidHttpVersion = fmt.Errorf("invalid HTTP version")
 
-func ParseRequest(conn net.Conn) (Request, error) {
+type errInvalidHttpMethod struct {
+	Method string
+}
+
+func (e errInvalidHttpMethod) Error() string {
+	return fmt.Sprintf("invalid HTTP method: %s", e.Method)
+}
+
+func (e errInvalidHttpMethod) Unwrap() error {
+	return ErrInvalidHttpMethod
+}
+
+type errInvalidHttpVersion struct {
+	Version string
+}
+
+func (e errInvalidHttpVersion) Unwrap() error {
+	return ErrInvalidHttpVersion
+}
+
+func (e errInvalidHttpVersion) Error() string {
+	return fmt.Sprintf("invalid HTTP version: %s", e.Version)
+}
+
+func ParseRequest(ctx Context) (*Request, error) {
 	//wrap connection in a buffered scanner
-	r := bufio.NewReader(conn)
+	r := bufio.NewReader(ctx.Conn)
 	s := bufio.NewScanner(r)
 
-	request := Request{}
+	request := &Request{}
 	buf := []string{}
 	for s.Scan() {
 		line := s.Text()
@@ -41,21 +66,25 @@ func ParseRequest(conn net.Conn) (Request, error) {
 	//parse method, path, version and headers
 	if len(buf) == 0 {
 		//invalid request
-		return Request{}, ErrInvalidRequest
+		ctx.AdditionalData["BadRequestReason"] = "Empty request"
+		return nil, ErrInvalidRequest
 	}
 	firstLineParts := strings.Split(buf[0], " ")
 	if len(firstLineParts) < 3 {
-		return Request{}, ErrInvalidRequest
+		ctx.AdditionalData["BadRequestReason"] = "Invalid request format"
+		return nil, ErrInvalidRequest
 	}
 	var err error
 	request.Method, err = parseMethod(firstLineParts[0])
 	if err != nil {
-		return Request{}, fmt.Errorf("unable to parse request: %w", err)
+		ctx.AdditionalData["BadRequestReason"] = "Invalid HTTP method"
+		return nil, fmt.Errorf("unable to parse request: %w", err)
 	}
 	request.Path = firstLineParts[1]
 	request.Version, err = parseVersion(firstLineParts[2])
 	if err != nil {
-		return Request{}, fmt.Errorf("unable to parse request: %w", err)
+		ctx.AdditionalData["BadRequestReason"] = "Invalid HTTP version"
+		return nil, fmt.Errorf("unable to parse request: %w", err)
 	}
 
 	//parse headers
@@ -87,12 +116,16 @@ func ParseRequest(conn net.Conn) (Request, error) {
 	for _, header := range request.Headers {
 		//if we have a Content-Length header, we read the expected length of bytes as the body
 		if header.Name == "Content-Length" {
-			handleContentLength(&request, r)
+			err = handleContentLength(request, r)
 			break
 		} else if header.Name == "Transfer-Encoding" {
-			handleTransferEncoding(&request, s)
+			err = handleTransferEncoding(request, s)
 			break
 		}
+	}
+	if err != nil {
+		ctx.AdditionalData["BadRequestReason"] = "Failed parsing request body"
+		return nil, fmt.Errorf("failed parsing request body: %w", err)
 	}
 
 	return request, nil
@@ -211,7 +244,7 @@ func parseMethod(method string) (Method, error) {
 	case "PATCH":
 		return PATCH, nil
 	default:
-		return 0, fmt.Errorf("unknown HTTP method: %s", method)
+		return 0, errInvalidHttpMethod{method}
 	}
 }
 
@@ -226,6 +259,6 @@ func parseVersion(version string) (Version, error) {
 	case "HTTP/3.0":
 		return HTTP3, nil
 	default:
-		return 0, fmt.Errorf("unknown HTTP version: %s", version)
+		return 0, errInvalidHttpVersion{version}
 	}
 }

@@ -122,7 +122,6 @@ func connectLoop(tcpSock *net.TCPListener) {
 
 func handleConnection(conn net.Conn) {
 	//defer closing connection
-	resp := &http.Response{}
 	defer func(conn net.Conn) {
 		err := conn.Close()
 		if err != nil {
@@ -130,13 +129,30 @@ func handleConnection(conn net.Conn) {
 		}
 	}(conn)
 
+	//create an HTTP context with an empty response for the connection
+	ctx := http.NewContext(conn)
+	ctx.Response = http.NewResponse()
+
 	//parse the request
-	req, err := http.ParseRequest(conn)
+	var err error
+	ctx.Request, err = http.ParseRequest(ctx)
 	//queue writing response to connection (we must always answer with at least something, no matter how hard we error out)
-	defer writeResponseToConn(req, resp, conn)
+	defer writeResponseToConn(ctx.Response, ctx.Conn)
+
+	//add common headers required on every response
+	defer func(ctx http.Context) {
+		err := handlers.ResponseHeadersHandler(ctx)
+		if err != nil {
+			//handle gracefully? should never error out though
+			panic(err)
+		}
+	}(ctx)
 	if err != nil {
-		if errors.Is(err, http.ErrInvalidRequest) {
-			err := handlers.BadRequestHandler(req, resp)
+		if errors.Is(err, http.ErrInvalidRequest) ||
+			errors.Is(err, http.ErrInvalidHttpMethod) ||
+			errors.Is(err, http.ErrInvalidHttpVersion) {
+			err := handlers.BadRequestHandler(ctx)
+			//bad request handler may never error out
 			if err != nil {
 				//we messed up big time if we ever get here, error handlers must be error free
 				panic(err)
@@ -147,40 +163,40 @@ func handleConnection(conn net.Conn) {
 	}
 	//print the request for debugging
 	//TODO: turn this into toggleable connection trace logging
-	fmt.Printf("%+v\n", req)
+	fmt.Printf("%+v\n", ctx.Request)
 
-	if !strings.HasSuffix(req.Path, "/") {
-		req.Path += "/"
+	if !strings.HasSuffix(ctx.Request.Path, "/") {
+		ctx.Request.Path += "/"
 	}
-	route, err := routes.Find(req.Path)
+	route, err := routes.Find(ctx.Request.Path)
 	if err != nil {
 		if errors.Is(err, common.ErrNoMatch) {
 			//this handler never errors
-			_ = handlers.NotFoundHandler(req, resp)
+			_ = handlers.NotFoundHandler(ctx)
 			return
 		} else {
 			err := fmt.Errorf("error fetching handler from radix tree: %w", err)
 			if err != nil {
 				panic(err)
 			}
-			_ = handlers.InternalServerErrorHandler(req, resp)
+			_ = handlers.InternalServerErrorHandler(ctx)
 			return
 		}
 
 	} else {
 		//call route handler
-		err = route.Data.HandleRequest(req, resp)
+		err = route.Data.HandleRequest(ctx)
 		if err != nil {
 			err := fmt.Errorf("error in handler: %w", err)
 			if err != nil {
 				panic(err)
 			}
-			_ = handlers.InternalServerErrorHandler(req, resp)
+			_ = handlers.InternalServerErrorHandler(ctx)
 		}
 	}
 }
 
-func writeResponseToConn(req http.Request, resp *http.Response, conn net.Conn) {
+func writeResponseToConn(resp *http.Response, conn net.Conn) {
 	err := resp.WriteToConn(conn)
 	if err == nil {
 		return

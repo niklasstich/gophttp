@@ -28,20 +28,20 @@ func NewFileHandler(filepath string) Handler {
 	return f
 }
 
-func (f *fileHandler) HandleRequest(req http.Request, resp *http.Response) error {
+func (f *fileHandler) HandleRequest(ctx http.Context) error {
 	//1. write MIME header
 	//2. read file
 	//3. write body into response
-	resp.Headers = append(resp.Headers, http.Header{Name: "Content-Type", Value: f.MIME})
+	ctx.Response.AddHeader(http.Header{Name: "Content-Type", Value: f.MIME})
 
 	file, err := os.ReadFile(f.Filepath)
 	if err != nil {
-		resp.Status = http.StatusInternalServerError
+		ctx.Response.Status = http.StatusInternalServerError
 		return err
 	}
 
-	resp.Body = file
-	resp.Status = http.StatusOK
+	ctx.Response.Body = file
+	ctx.Response.Status = http.StatusOK
 
 	return nil
 }
