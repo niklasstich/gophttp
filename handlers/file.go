@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"gophttp/common"
 	"gophttp/http"
 	"os"
-	"strings"
 )
 
 type fileHandler struct {
@@ -12,19 +12,11 @@ type fileHandler struct {
 }
 
 func NewFileHandler(filepath string) Handler {
-	f := &fileHandler{Filepath: filepath}
-	splits := strings.Split(strings.TrimRight(filepath, "/\\"), ".")
-
-	//TODO: figure out a way to determine most common MIME types
-	//TODO: refactor into mime.go
-	switch splits[len(splits)-1] {
-	case "txt":
-		f.MIME = "text/plain"
-	case "mp4":
-		f.MIME = "video/mp4"
-	default:
-		f.MIME = "application/octet-stream"
+	mime, err := common.GetMIMEFromPath(filepath)
+	if err != nil {
+		panic(err)
 	}
+	f := &fileHandler{Filepath: filepath, MIME: mime}
 	return f
 }
 
