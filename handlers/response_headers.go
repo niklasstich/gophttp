@@ -11,12 +11,16 @@ import (
 const VERSION = "0.1"
 const SERVER_NAME = "gophttp"
 
-var ServerHeader http.Header
+var ServerHeader, ConnectionHeader http.Header
 
 func init() {
 	ServerHeader = http.Header{
 		Name:  "Server",
 		Value: fmt.Sprintf("%s/%s", SERVER_NAME, VERSION),
+	}
+	ConnectionHeader = http.Header{
+		Name:  "Connection",
+		Value: "close",
 	}
 }
 
@@ -28,6 +32,7 @@ func ResponseHeadersHandler(ctx http.Context) error {
 		Name:  "Date",
 		Value: common.ToHttpDateFormat(time.Now()),
 	})
+	ctx.Response.AddHeader(ConnectionHeader)
 	if !ctx.Response.Headers.HasHeader("Content-Length") {
 		var length int
 		switch v := ctx.Response.Body.(type) {
