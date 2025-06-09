@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"strings"
 )
 
 type Response struct {
@@ -39,7 +40,7 @@ func (r Response) WriteToConn(conn net.Conn) error {
 	}
 	//write all headers
 	for _, header := range r.Headers {
-		_, err = w.WriteString(fmt.Sprintf("%s: %s\n", header.Name, header.Value))
+		_, err = w.WriteString(fmt.Sprintf("%s: %s\n", header.Name, strings.TrimRight(header.Value, "\n")))
 		if err != nil {
 			return err
 		}

@@ -8,7 +8,6 @@ import (
 	"gophttp/handlers"
 	"gophttp/http"
 	"net"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -155,9 +154,6 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 	//TODO: turn this into toggleable connection trace logging
 	fmt.Printf("%+v\n", ctx.Request)
 
-	if !strings.HasSuffix(ctx.Request.Path, "/") {
-		ctx.Request.Path += "/"
-	}
 	route, err := s.Routes.Find(ctx.Request.Path)
 	if err != nil {
 		if errors.Is(err, common.ErrNoMatch) {
