@@ -1,12 +1,20 @@
 package http
 
 import (
-	"os"
 	"strings"
 )
 
 func GetHttpPathForFilepath(filepath string) string {
-	parts := strings.Split(filepath, string(os.PathSeparator))
-	s := "/" + strings.Join(parts, "/") + "/"
-	return strings.Replace(s, "/.", "", 1)
+	fp := strings.ReplaceAll(filepath, "\\", "/")
+	fp = strings.TrimSpace(fp)
+	// Normalize root cases
+	if fp == "." || fp == "./" || fp == "/." || fp == "/./" {
+		return "/"
+	}
+	// Remove leading "./" or "/."
+	fp = strings.TrimPrefix(fp, "./")
+	fp = strings.TrimPrefix(fp, "/.")
+	// Remove leading and suffix slashes
+	fp = strings.Trim(fp, "/")
+	return "/" + fp
 }
