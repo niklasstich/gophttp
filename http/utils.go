@@ -7,6 +7,10 @@ import (
 func GetHttpPathForFilepath(filepath string) string {
 	fp := strings.ReplaceAll(filepath, "\\", "/")
 	fp = strings.TrimSpace(fp)
+	//handle windows path shenanigans
+	if strings.Contains(fp, ":") {
+		fp = fp[2:]
+	}
 	// Normalize root cases
 	if fp == "." || fp == "./" || fp == "/." || fp == "/./" {
 		return "/"
