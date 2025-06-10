@@ -12,16 +12,6 @@ type Response struct {
 	Headers Headers
 	Body    interface{}
 }
-type Headers map[string]Header
-
-func (m Headers) HasHeader(key string) bool {
-	for _, header := range m {
-		if header.Name == key {
-			return true
-		}
-	}
-	return false
-}
 
 func NewResponse() *Response {
 	return &Response{Headers: make(map[string]Header)}

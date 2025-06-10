@@ -12,13 +12,8 @@ type Request struct {
 	Method
 	Version
 	Path    string
-	Headers map[string]Header
+	Headers Headers
 	Body    []byte
-}
-
-type Header struct {
-	Name  string
-	Value string
 }
 
 var ErrInvalidRequest = fmt.Errorf("invalid HTTP request format")
