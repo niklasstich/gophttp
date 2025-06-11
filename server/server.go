@@ -17,6 +17,8 @@ type HttpServer struct {
 	Port   int
 }
 
+var compressionHandler = handlers.NewCompressionHandler()
+
 func NewHttpServer(port int) *HttpServer {
 	return &HttpServer{common.NewRadixTree[handlers.Handler](), port}
 }
@@ -50,7 +52,9 @@ func (s HttpServer) AddRoutes(path string) error {
 
 func (s HttpServer) addFileRoute(file string) error {
 	path := http.GetHttpPathForFilepath(file)
-	err := s.Routes.Insert(path, handlers.NewFileHandler(file))
+	fh := handlers.NewFileHandler(file)
+	h := handlers.ComposeHandlers(fh, compressionHandler)
+	err := s.Routes.Insert(path, h)
 	return err
 }
 
@@ -173,10 +177,8 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 		//call route handler
 		err = route.Data.HandleRequest(ctx)
 		if err != nil {
-			err := fmt.Errorf("error in handler: %w", err)
-			if err != nil {
-				panic(err)
-			}
+			err := fmt.Errorf("error in handler of type %T: %w", route.Data, err)
+			fmt.Println(err)
 			_ = handlers.InternalServerErrorHandler(ctx)
 		}
 	}

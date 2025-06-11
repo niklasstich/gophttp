@@ -9,7 +9,7 @@ type Handler interface {
 type HandlerFunc func(ctx http.Context) error
 
 func (h HandlerFunc) HandleRequest(ctx http.Context) error {
-	return h.HandleRequest(ctx)
+	return h(ctx)
 }
 
 type composedHandler struct {
