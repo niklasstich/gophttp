@@ -130,7 +130,7 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 	var err error
 	ctx.Request, err = http.ParseRequest(ctx)
 	//queue writing response to connection (we must always answer with at least something, no matter how hard we error out)
-	defer writeResponseToConn(ctx.Response, ctx.Conn)
+	defer writeResponseToConn(ctx, 0)
 
 	//add common headers required on every response
 	defer func(ctx http.Context) {
@@ -184,8 +184,11 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 	}
 }
 
-func writeResponseToConn(resp *http.Response, conn net.Conn) {
-	err := resp.WriteToConn(conn)
+func writeResponseToConn(ctx http.Context, depth int) {
+	if depth == 5 {
+		panic("detected recursive loop in writeResponseToConn")
+	}
+	err := ctx.Response.WriteToConn(ctx.Conn)
 	if err == nil {
 		return
 	}
@@ -199,6 +202,14 @@ func writeResponseToConn(resp *http.Response, conn net.Conn) {
 	}
 	if errors.Is(err, syscall.ECONNRESET) {
 		fmt.Println("connection reset: ", err)
+		return
+	}
+	if errors.Is(err, http.ErrUnknownBodyType) {
+		fmt.Println("couldn't write unknown body type: ", err)
+		if depth == 0 {
+			err = handlers.InternalServerErrorHandler(ctx)
+		}
+		writeResponseToConn(ctx, depth+1)
 		return
 	}
 	panic(err)

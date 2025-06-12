@@ -2,6 +2,7 @@ package http
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"net"
 	"strings"
@@ -21,6 +22,8 @@ func NewResponse() *Response {
 func (r Response) AddHeader(header Header) {
 	r.Headers[header.Name] = header
 }
+
+var ErrUnknownBodyType = fmt.Errorf("unknown body type")
 
 func (r Response) WriteToConn(conn net.Conn) error {
 	w := bufio.NewWriter(conn)
@@ -56,10 +59,14 @@ func (r Response) WriteToConn(conn net.Conn) error {
 		if err != nil {
 			return err
 		}
+	} else if b, ok := r.Body.(bytes.Buffer); ok {
+		_, err := w.Write(b.Bytes())
+		if err != nil {
+			return err
+		}
 	} else {
-		//don't know how to write it, panic for now
-		//TODO: fix this
-		panic("unknown body type")
+		//log and return err (500)
+		return fmt.Errorf("%v: %T", ErrUnknownBodyType, r.Body)
 	}
 
 	return w.Flush()
