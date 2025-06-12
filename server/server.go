@@ -13,14 +13,14 @@ import (
 )
 
 type HttpServer struct {
-	Routes *common.RadixTree[handlers.Handler]
-	Port   int
+	routes *common.RadixTree[RouteHandlerCollection]
+	port   int
 }
 
 var compressionHandler = handlers.NewCompressionHandler()
 
 func NewHttpServer(port int) *HttpServer {
-	return &HttpServer{common.NewRadixTree[handlers.Handler](), port}
+	return &HttpServer{common.NewRadixTree[RouteHandlerCollection](), port}
 }
 
 // AddRoutes searches for all files and directories under path and adds a handler for each of them to the server
@@ -50,11 +50,25 @@ func (s HttpServer) AddRoutes(path string) error {
 	return nil
 }
 
+func (s HttpServer) insertRoute(route string, method http.Method, handler handlers.Handler) error {
+	n, err := s.routes.Find(route)
+	if err != nil {
+		if errors.Is(err, common.ErrNoMatch) {
+			n = NewRouteHandlers()
+		} else {
+			return err
+		}
+	}
+	n.InsertRoute(method, handler)
+	err = s.routes.Insert(route, n)
+	return err
+}
+
 func (s HttpServer) addFileRoute(file string) error {
 	path := http.GetHttpPathForFilepath(file)
 	fh := handlers.NewFileHandler(file)
 	h := handlers.ComposeHandlers(fh, compressionHandler)
-	err := s.Routes.Insert(path, h)
+	err := s.insertRoute(path, http.GET, h)
 	return err
 }
 
@@ -64,12 +78,12 @@ func (s HttpServer) addDirRoute(dir string) error {
 	if err != nil {
 		return err
 	}
-	err = s.Routes.Insert(path, handler)
+	err = s.insertRoute(path, http.GET, handler)
 	return err
 }
 
 func (s HttpServer) StartServing(ctx context.Context) error {
-	sock, err := net.Listen("tcp", fmt.Sprintf(":%d", s.Port))
+	sock, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
 	tcpSock := sock.(*net.TCPListener)
 	if err != nil {
 		return err
@@ -158,7 +172,7 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 	//TODO: turn this into toggleable connection trace logging
 	fmt.Printf("%+v\n", ctx.Request)
 
-	route, err := s.Routes.Find(ctx.Request.Path)
+	routes, err := s.routes.Find(ctx.Request.Path)
 	if err != nil {
 		if errors.Is(err, common.ErrNoMatch) {
 			//this handler never errors
@@ -173,14 +187,18 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 			return
 		}
 
-	} else {
-		//call route handler
-		err = route.Data.HandleRequest(ctx)
-		if err != nil {
-			err := fmt.Errorf("error in handler of type %T: %w", route.Data, err)
-			fmt.Println(err)
-			_ = handlers.InternalServerErrorHandler(ctx)
-		}
+	}
+	//try to find handler for HTTP method
+	handler := routes.GetRoute(ctx.Request.Method)
+	if handler == nil {
+		_ = handlers.NotFoundHandler(ctx)
+		return
+	}
+	err = handler.HandleRequest(ctx)
+	if err != nil {
+		err = fmt.Errorf("error in handler of type %T: %w", handler, err)
+		fmt.Println(err)
+		_ = handlers.InternalServerErrorHandler(ctx)
 	}
 }
 

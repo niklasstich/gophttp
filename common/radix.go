@@ -14,8 +14,8 @@ func NewRadixTree[T any]() *RadixTree[T] {
 }
 
 type Radix[T any] interface {
-	Find(path string) (*RadixTreeNode[T], error)
-	Insert(path string, node *RadixTreeNode[T]) error
+	Find(path string) (T, error)
+	Insert(path string, data T) error
 	Delete(path string) error
 	Nodes() int
 }
@@ -23,19 +23,19 @@ type Radix[T any] interface {
 var ErrNoMatch = fmt.Errorf("no match found")
 var ErrPathAlreadyExists = fmt.Errorf("path already exists")
 
-func (r RadixTree[T]) Find(path string) (*RadixTreeNode[T], error) {
+func (r RadixTree[T]) Find(path string) (T, error) {
 	currNode := r.Node
 	for len(path) > 0 {
 		var err error
 		currNode, path, err = findNextNode(currNode, path)
 		if err != nil {
-			return nil, err
+			return *new(T), err
 		}
 	}
 	if currNode.HasData {
-		return currNode, nil
+		return currNode.Data, nil
 	}
-	return nil, ErrNoMatch
+	return *new(T), ErrNoMatch
 }
 
 func findNextNode[T any](currNode *RadixTreeNode[T], path string) (*RadixTreeNode[T], string, error) {
