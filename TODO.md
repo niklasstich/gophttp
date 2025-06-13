@@ -5,10 +5,13 @@ sooner rather than later
 - [x] Move logic from main into some class and break it up into logical chunks
 - [x] correctly write mime on file handler with `file --mime-type` command
 - [x] brotli and gzip compression handlers (minimal library support? does stdlib support it?)
+  - [ ] gzip support
+  - [ ] deflate support
   - [ ] cache compressed static content
   - [ ] optional flag to precompress static routes 
   - [ ] replace brotli package with my own brotli implementation
 - [ ] support `Connection: keep-alive`
+- [ ] chunked transfer responses (with channels)
 - [ ] write cache headers on file handler responses
 - [ ] CORS headers
 
