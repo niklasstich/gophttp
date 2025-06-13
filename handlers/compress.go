@@ -46,6 +46,7 @@ func getPreferredAvailableCompression(acceptedCompressions map[string]float64) C
 	for s, f := range acceptedCompressions {
 		if _, ok := compressions[CompressionAlgorithm(s)]; ok && f > qValue {
 			retval = CompressionAlgorithm(s)
+			qValue = f
 		}
 	}
 	return retval
