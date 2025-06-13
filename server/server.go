@@ -7,6 +7,7 @@ import (
 	"gophttp/common"
 	"gophttp/handlers"
 	"gophttp/http"
+	"log/slog"
 	"net"
 	"syscall"
 	"time"
@@ -92,14 +93,14 @@ func (s HttpServer) StartServing(ctx context.Context) error {
 	defer func(sock net.Listener) {
 		err := sock.Close()
 		if err != nil {
-			fmt.Printf("error while closing socket: %v", err)
+			slog.Error("error closing socket", err)
 		}
 	}(sock)
 
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("shutting down")
+			slog.Info("shutting down")
 			return nil
 		default:
 			// continue
@@ -111,7 +112,7 @@ func (s HttpServer) StartServing(ctx context.Context) error {
 func (s HttpServer) connectLoop(tcpSock *net.TCPListener) {
 	err := tcpSock.SetDeadline(time.Now().Add(1 * time.Second))
 	if err != nil {
-		fmt.Println(err)
+		slog.Error("error setting socket deadline", err)
 		return
 	}
 	conn, err := tcpSock.Accept()
@@ -121,7 +122,7 @@ func (s HttpServer) connectLoop(tcpSock *net.TCPListener) {
 			//ignore timeout errors as they are expected
 			return
 		}
-		fmt.Println(err)
+		slog.Error("failed accepting tcp socket connection", err)
 		return
 	}
 	go s.handleConnection(conn)
@@ -132,7 +133,7 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 	defer func(conn net.Conn) {
 		err := conn.Close()
 		if err != nil {
-			fmt.Println(err)
+			slog.Error("failed closing socket", err)
 		}
 	}(conn)
 
@@ -170,7 +171,11 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 	}
 	//print the request for debugging
 	//TODO: turn this into toggleable connection trace logging
-	fmt.Printf("%+v\n", ctx.Request)
+	ra := slog.Group("request",
+		"method", ctx.Request.Method,
+		"path", ctx.Request.Path,
+		"version", ctx.Version)
+	slog.Debug(ra.String())
 
 	routes, err := s.routes.Find(ctx.Request.Path)
 	if err != nil {
@@ -196,8 +201,7 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 	}
 	err = handler.HandleRequest(ctx)
 	if err != nil {
-		err = fmt.Errorf("error in handler of type %T: %w", handler, err)
-		fmt.Println(err)
+		slog.Error("error in handler", handler, err)
 		_ = handlers.InternalServerErrorHandler(ctx)
 	}
 }
@@ -211,19 +215,19 @@ func writeResponseToConn(ctx http.Context, depth int) {
 		return
 	}
 	if errors.Is(err, net.ErrClosed) {
-		fmt.Println("tried writing to closed connection: ", err)
+		slog.Error("unexpected closed connection", err)
 		return
 	}
 	if errors.Is(err, syscall.EPIPE) {
-		fmt.Println("tried writing to broken pipe: ", err)
+		slog.Error("unexpected broken pipe", err)
 		return
 	}
 	if errors.Is(err, syscall.ECONNRESET) {
-		fmt.Println("connection reset: ", err)
+		slog.Error("unexpected connection reset", err)
 		return
 	}
 	if errors.Is(err, http.ErrUnknownBodyType) {
-		fmt.Println("couldn't write unknown body type: ", err)
+		slog.Error("unexpected body type", err)
 		if depth == 0 {
 			err = handlers.InternalServerErrorHandler(ctx)
 		}

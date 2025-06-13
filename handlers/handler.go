@@ -41,7 +41,6 @@ func NotFoundHandler(ctx http.Context) error {
 
 func InternalServerErrorHandler(ctx http.Context) error {
 	ctx.Response.Status = http.StatusInternalServerError
-	//TODO: (maybe?) write reason for internal server error
 	ctx.Response.Body = "Internal server error"
 	ctx.Response.AddHeader(http.Header{
 		Name:  "MIME",

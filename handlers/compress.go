@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"fmt"
 	"gophttp/http"
+	"log/slog"
 )
 
 //go:generate stringer -type=CompressionAlgorithm
@@ -32,8 +32,8 @@ func (c compressionHandler) HandleRequest(ctx http.Context) error {
 		return err
 	}
 	bestFit := getPreferredAvailableCompression(acceptedCompressions)
-	//TODO: trace logging
-	fmt.Printf("chose %s for Accept-Encoding %s\n", bestFit, header.Value)
+	attr := slog.Group("compression", "best_fit", bestFit, "accept_encoding_header", header.Value)
+	slog.Debug(attr.String())
 	if h, ok := compressions[bestFit]; ok {
 		return h.HandleRequest(ctx)
 	}

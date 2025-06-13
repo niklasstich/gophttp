@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"gophttp/server"
+	"log/slog"
 	"os"
 	"os/signal"
 )
 
 func main() {
+	slog.SetLogLoggerLevel(slog.LevelDebug)
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
 
@@ -17,7 +18,7 @@ func main() {
 	go func() {
 		for range c {
 			cancel()
-			fmt.Println("received SIGINT")
+			slog.Info("received SIGINT")
 		}
 	}()
 
@@ -34,6 +35,6 @@ func main() {
 	}
 	err = serv.StartServing(ctx)
 	if err != nil {
-		fmt.Println(err)
+		slog.Error("error in server thread", err)
 	}
 }
