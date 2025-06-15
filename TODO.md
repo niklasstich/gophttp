@@ -10,10 +10,11 @@ sooner rather than later
   - [ ] cache compressed static content
   - [ ] optional flag to precompress static routes 
   - [ ] replace brotli package with my own brotli implementation
-- [ ] support `Connection: keep-alive`
+- [x] support `Connection: keep-alive`
 - [ ] chunked transfer responses (with channels)
 - [ ] write cache headers on file handler responses
 - [ ] CORS headers
+- [ ] custom reader type for request reading (alternative to bufio, greedy reader that reads until end of http request)
 
 later:
 - [ ] implement delete on radix tree

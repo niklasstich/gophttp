@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Request struct {
@@ -45,6 +46,11 @@ func (e errInvalidHttpVersion) Error() string {
 }
 
 func ParseRequest(ctx Context) (*Request, error) {
+	//set a 5s read timeout on the underlying connection
+	err := ctx.Conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err != nil {
+		return nil, fmt.Errorf("couldn't set read deadline on conn when parsing request")
+	}
 	//wrap connection in a buffered scanner
 	r := bufio.NewReader(ctx.Conn)
 	s := bufio.NewScanner(r)
@@ -62,14 +68,13 @@ func ParseRequest(ctx Context) (*Request, error) {
 	if len(buf) == 0 {
 		//invalid request
 		ctx.AdditionalData["BadRequestReason"] = "Empty request"
-		return nil, ErrInvalidRequest
+		return nil, fmt.Errorf("%w: empty buffer", ErrInvalidRequest)
 	}
 	firstLineParts := strings.Split(buf[0], " ")
 	if len(firstLineParts) < 3 {
 		ctx.AdditionalData["BadRequestReason"] = "Invalid request format"
-		return nil, ErrInvalidRequest
+		return nil, fmt.Errorf("%w: request line is %d parts long", ErrInvalidRequest, len(firstLineParts))
 	}
-	var err error
 	request.Method, err = parseMethod(firstLineParts[0])
 	if err != nil {
 		ctx.AdditionalData["BadRequestReason"] = "Invalid HTTP method"

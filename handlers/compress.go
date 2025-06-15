@@ -33,7 +33,7 @@ func (c compressionHandler) HandleRequest(ctx http.Context) error {
 	}
 	bestFit := getPreferredAvailableCompression(acceptedCompressions)
 	attr := slog.Group("compression", "best_fit", bestFit, "accept_encoding_header", header.Value)
-	slog.Debug(attr.String())
+	slog.Debug(attr.String(), "index", ctx.Index)
 	if h, ok := compressions[bestFit]; ok {
 		return h.HandleRequest(ctx)
 	}

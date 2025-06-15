@@ -8,24 +8,40 @@ import (
 	"gophttp/handlers"
 	"gophttp/http"
 	"log/slog"
+	"math"
 	"net"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
 type HttpServer struct {
-	routes *common.RadixTree[RouteHandlerCollection]
-	port   int
+	routes     *common.RadixTree[RouteHandlerCollection]
+	port       int
+	reqIndex   uint64
+	muReqIndex sync.Mutex
 }
 
 var compressionHandler = handlers.NewCompressionHandler()
 
 func NewHttpServer(port int) *HttpServer {
-	return &HttpServer{common.NewRadixTree[RouteHandlerCollection](), port}
+	return &HttpServer{
+		routes:   common.NewRadixTree[RouteHandlerCollection](),
+		port:     port,
+		reqIndex: math.MaxUint64,
+	}
+}
+
+func (s *HttpServer) nextReqIndex() uint64 {
+	s.muReqIndex.Lock()
+	defer s.muReqIndex.Unlock()
+	s.reqIndex++
+	return s.reqIndex
 }
 
 // AddRoutes searches for all files and directories under path and adds a handler for each of them to the server
-func (s HttpServer) AddRoutes(path string) error {
+func (s *HttpServer) AddRoutes(path string) error {
 	files, err := common.ListFilesRecursive(path)
 	if err != nil {
 		panic(err)
@@ -51,7 +67,7 @@ func (s HttpServer) AddRoutes(path string) error {
 	return nil
 }
 
-func (s HttpServer) insertRoute(route string, method http.Method, handler handlers.Handler) error {
+func (s *HttpServer) insertRoute(route string, method http.Method, handler handlers.Handler) error {
 	n, err := s.routes.Find(route)
 	if err != nil {
 		if errors.Is(err, common.ErrNoMatch) {
@@ -65,7 +81,7 @@ func (s HttpServer) insertRoute(route string, method http.Method, handler handle
 	return err
 }
 
-func (s HttpServer) addFileRoute(file string) error {
+func (s *HttpServer) addFileRoute(file string) error {
 	path := http.GetHttpPathForFilepath(file)
 	fh := handlers.NewFileHandler(file)
 	h := handlers.ComposeHandlers(fh, compressionHandler)
@@ -73,7 +89,7 @@ func (s HttpServer) addFileRoute(file string) error {
 	return err
 }
 
-func (s HttpServer) addDirRoute(dir string) error {
+func (s *HttpServer) addDirRoute(dir string) error {
 	path := http.GetHttpPathForFilepath(dir)
 	handler, err := handlers.NewDirectoryHandler(dir)
 	if err != nil {
@@ -83,7 +99,7 @@ func (s HttpServer) addDirRoute(dir string) error {
 	return err
 }
 
-func (s HttpServer) StartServing(ctx context.Context) error {
+func (s *HttpServer) StartServing(ctx context.Context) error {
 	sock, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
 	tcpSock := sock.(*net.TCPListener)
 	if err != nil {
@@ -109,7 +125,7 @@ func (s HttpServer) StartServing(ctx context.Context) error {
 	}
 }
 
-func (s HttpServer) connectLoop(tcpSock *net.TCPListener) {
+func (s *HttpServer) connectLoop(tcpSock *net.TCPListener) {
 	err := tcpSock.SetDeadline(time.Now().Add(1 * time.Second))
 	if err != nil {
 		slog.Error("error setting socket deadline", err)
@@ -128,7 +144,7 @@ func (s HttpServer) connectLoop(tcpSock *net.TCPListener) {
 	go s.handleConnection(conn)
 }
 
-func (s HttpServer) handleConnection(conn net.Conn) {
+func (s *HttpServer) handleConnection(conn net.Conn) {
 	//defer closing connection
 	defer func(conn net.Conn) {
 		err := conn.Close()
@@ -137,9 +153,19 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 		}
 	}(conn)
 
+	//handle keep-alive: only exit this loop whenever we get Connection: close, error out, time out or HTTP/1.0
+	for {
+		shouldClose := s.handleTCPMessage(conn)
+		if shouldClose {
+			break
+		}
+	}
+}
+
+func (s *HttpServer) handleTCPMessage(conn net.Conn) bool {
+	idx := s.nextReqIndex()
 	//create an HTTP context with an empty response for the connection
-	ctx := http.NewContext(conn)
-	ctx.Response = http.NewResponse()
+	ctx := http.NewContext(conn, idx)
 
 	//parse the request
 	var err error
@@ -159,50 +185,61 @@ func (s HttpServer) handleConnection(conn net.Conn) {
 		if errors.Is(err, http.ErrInvalidRequest) ||
 			errors.Is(err, http.ErrInvalidHttpMethod) ||
 			errors.Is(err, http.ErrInvalidHttpVersion) {
+			slog.Debug("request failed parsing", "err", err, "index", ctx.Index)
 			err := handlers.BadRequestHandler(ctx)
 			//bad request handler may never error out
 			if err != nil {
 				//we messed up big time if we ever get here, error handlers must be error free
 				panic(err)
 			}
-			return
+			return true
 		}
 		panic(err)
 	}
 	//print the request for debugging
-	//TODO: turn this into toggleable connection trace logging
 	ra := slog.Group("request",
 		"method", ctx.Request.Method,
 		"path", ctx.Request.Path,
-		"version", ctx.Version)
-	slog.Debug(ra.String())
+		"version", ctx.Version,
+		"headers", ctx.Request.Headers)
+	slog.Debug(ra.String(), "index", ctx.Index)
 
 	routes, err := s.routes.Find(ctx.Request.Path)
 	if err != nil {
 		if errors.Is(err, common.ErrNoMatch) {
 			//this handler never errors
 			_ = handlers.NotFoundHandler(ctx)
-			return
+			return true
 		} else {
 			err := fmt.Errorf("error fetching handler from radix tree: %w", err)
 			if err != nil {
 				panic(err)
 			}
 			_ = handlers.InternalServerErrorHandler(ctx)
-			return
+			return true
 		}
-
 	}
 	//try to find handler for HTTP method
 	handler := routes.GetRoute(ctx.Request.Method)
 	if handler == nil {
 		_ = handlers.NotFoundHandler(ctx)
-		return
+		return true
 	}
 	err = handler.HandleRequest(ctx)
 	if err != nil {
-		slog.Error("error in handler", handler, err)
+		slog.Error("error in handler", "handler", handler, "err", err, "index", ctx.Index)
 		_ = handlers.InternalServerErrorHandler(ctx)
+	}
+
+	switch ctx.Request.Version {
+	case http.HTTP1_0:
+		h, ok := ctx.Request.Headers["Connection"]
+		return !(ok && strings.TrimSpace(h.Value) == "keep-alive")
+	case http.HTTP1_1:
+		h, ok := ctx.Request.Headers["Connection"]
+		return ok && strings.TrimSpace(h.Value) == "close"
+	default:
+		panic("unsupported http version")
 	}
 }
 
@@ -215,19 +252,19 @@ func writeResponseToConn(ctx http.Context, depth int) {
 		return
 	}
 	if errors.Is(err, net.ErrClosed) {
-		slog.Error("unexpected closed connection", err)
+		slog.Error("unexpected closed connection", "err", err, "index", ctx.Index)
 		return
 	}
 	if errors.Is(err, syscall.EPIPE) {
-		slog.Error("unexpected broken pipe", err)
+		slog.Error("unexpected broken pipe", "err", err, "index", ctx.Index)
 		return
 	}
 	if errors.Is(err, syscall.ECONNRESET) {
-		slog.Error("unexpected connection reset", err)
+		slog.Error("unexpected connection reset", "err", err, "index", ctx.Index)
 		return
 	}
 	if errors.Is(err, http.ErrUnknownBodyType) {
-		slog.Error("unexpected body type", err)
+		slog.Error("unexpected body type", "err", err, "index", ctx.Index)
 		if depth == 0 {
 			err = handlers.InternalServerErrorHandler(ctx)
 		}

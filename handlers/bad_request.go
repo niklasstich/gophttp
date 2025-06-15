@@ -19,5 +19,9 @@ func BadRequestHandler(ctx http.Context) error {
 		Name:  "MIME",
 		Value: "text/plain",
 	})
+	ctx.Response.AddHeader(http.Header{
+		Name:  "Connection",
+		Value: "close",
+	})
 	return nil
 }
