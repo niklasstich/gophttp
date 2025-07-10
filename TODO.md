@@ -16,6 +16,7 @@ sooner rather than later
 - [ ] chunked transfer responses (with channels)
 - [ ] write cache headers on file handler responses
 - [ ] CORS headers
+- [ ] support CORS preflight requests (OPTIONS)
 - [ ] custom reader type for request reading (alternative to bufio, greedy reader that reads until end of http request)
 
 later:

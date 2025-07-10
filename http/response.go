@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
 
 type Response struct {
@@ -63,6 +64,27 @@ func (r Response) WriteToConn(conn net.Conn) error {
 		_, err := w.Write(b.Bytes())
 		if err != nil {
 			return err
+		}
+	} else if c, ok := r.Body.(<-chan StreamedResponseChunk); ok {
+		//if we get a byte slice channel, start a loop where we read from said channel until it closes
+		//we block here and do not create another goroutine because we need to wait until we fully wrote our response
+		//before moving on to the next request in the TCP connection
+		for {
+			select {
+			case chunk, more := <-c:
+				if !more {
+					return w.Flush()
+				}
+				if chunk.Err != nil {
+					return chunk.Err
+				}
+				_, err := w.Write(chunk.Data)
+				if err != nil {
+					return err
+				}
+			case <-time.After(15 * time.Second): //TODO: make configurable
+				return fmt.Errorf("read timeout on body channel")
+			}
 		}
 	} else {
 		//log and return err (500)

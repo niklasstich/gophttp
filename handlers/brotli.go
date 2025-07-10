@@ -22,6 +22,11 @@ func (b brotliHandler) HandleRequest(ctx http.Context) error {
 	if !reqAcceptsBrotli(ctx.Request) {
 		return nil
 	}
+
+	if c, ok := ctx.Response.Body.(chan http.StreamedResponseChunk); ok {
+		return b.handleChannel(ctx, c)
+	}
+
 	bbuf, err := castBody(ctx.Response.Body)
 	if err != nil {
 		return err
@@ -41,6 +46,35 @@ func (b brotliHandler) HandleRequest(ctx http.Context) error {
 		Value: strconv.Itoa(len(newBuf)),
 	})
 	ctx.Response.Body = newBuf
+	return nil
+}
+
+func (b brotliHandler) handleChannel(ctx http.Context, c chan http.StreamedResponseChunk) error {
+	//TODO:
+	//1. create target channel and set in ctx
+	//2. start loop in goroutine:
+	//2.1. read from c
+	//2.2. get brotli bytes
+	//2.3.1 if error, write to err channel
+	//2.3.3 otherwise write brotli bytes to target channel
+	//3. wait on err channel and return
+	tChan := make(chan http.StreamedResponseChunk, 1)
+	ctx.Response.Body = tChan
+	go func() {
+		defer close(tChan)
+		for chunk := range c {
+			if chunk.Err != nil {
+				tChan <- chunk
+				return
+			}
+			compBuf, err := b.compressBody(chunk.Data)
+			if err != nil {
+				tChan <- http.StreamedResponseChunk{Err: err}
+				return
+			}
+			tChan <- http.StreamedResponseChunk{Data: compBuf}
+		}
+	}()
 	return nil
 }
 
