@@ -35,6 +35,6 @@ func main() {
 	}
 	err = serv.StartServing(ctx)
 	if err != nil {
-		slog.Error("error in server thread", err)
+		slog.Error("error in server thread", err.Error())
 	}
 }
