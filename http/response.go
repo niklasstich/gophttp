@@ -65,7 +65,7 @@ func (r Response) WriteToConn(conn net.Conn) error {
 		if err != nil {
 			return err
 		}
-	} else if c, ok := r.Body.(<-chan StreamedResponseChunk); ok {
+	} else if c, ok := r.Body.(chan StreamedResponseChunk); ok {
 		//if we get a byte slice channel, start a loop where we read from said channel until it closes
 		//we block here and do not create another goroutine because we need to wait until we fully wrote our response
 		//before moving on to the next request in the TCP connection

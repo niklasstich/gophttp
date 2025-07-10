@@ -117,7 +117,7 @@ func (s *HttpServer) StartServing(ctx context.Context) error {
 	defer func(sock net.Listener) {
 		err := sock.Close()
 		if err != nil {
-			slog.Error("error closing socket", err)
+			slog.Error("error closing socket", "err", err.Error())
 		}
 	}(sock)
 
@@ -136,7 +136,7 @@ func (s *HttpServer) StartServing(ctx context.Context) error {
 func (s *HttpServer) connectLoop(tcpSock *net.TCPListener) {
 	err := tcpSock.SetDeadline(time.Now().Add(1 * time.Second))
 	if err != nil {
-		slog.Error("error setting socket deadline", err)
+		slog.Error("error setting socket deadline", "err", err.Error())
 		return
 	}
 	conn, err := tcpSock.Accept()
@@ -146,7 +146,7 @@ func (s *HttpServer) connectLoop(tcpSock *net.TCPListener) {
 			//ignore timeout errors as they are expected
 			return
 		}
-		slog.Error("failed accepting tcp socket connection", err)
+		slog.Error("failed accepting tcp socket connection", "err", err.Error())
 		return
 	}
 	go s.handleConnection(conn)
@@ -157,7 +157,7 @@ func (s *HttpServer) handleConnection(conn net.Conn) {
 	defer func(conn net.Conn) {
 		err := conn.Close()
 		if err != nil {
-			slog.Error("failed closing socket", err)
+			slog.Error("failed closing socket", "err", err.Error())
 		}
 	}(conn)
 
