@@ -94,8 +94,8 @@ func TestRadixTree_Find(t *testing.T) {
 			if test.expected != -1 {
 				t.Errorf("unexpected error for path %s: %v", test.path, err)
 			}
-		} else if node.Data != test.expected {
-			t.Errorf("expected %d for path %s, got %d", test.expected, test.path, node.Data)
+		} else if node != test.expected {
+			t.Errorf("expected %d for path %s, got %d", test.expected, test.path, node)
 		}
 	}
 }
@@ -139,8 +139,8 @@ func TestRadixTree_Insert(t *testing.T) {
 			node, err := tree.Find(test.path)
 			if err != nil {
 				t.Errorf("Find(%q): unexpected error after insertion: %v", test.path, err)
-			} else if node.Data != test.data {
-				t.Errorf("Find(%q): expected data %d, got %d", test.path, test.data, node.Data)
+			} else if node != test.data {
+				t.Errorf("Find(%q): expected data %d, got %d", test.path, test.data, node)
 			}
 		}
 		//assert tree has correct amount of nodes
@@ -189,8 +189,8 @@ func TestRadixTree_InsertSubpathAfterFullPath(t *testing.T) {
 			node, err := tree.Find(test.path)
 			if err != nil {
 				t.Errorf("Find(%q): unexpected error after insertion: %v", test.path, err)
-			} else if node.Data != test.data {
-				t.Errorf("Find(%q): expected data %d, got %d", test.path, test.data, node.Data)
+			} else if node != test.data {
+				t.Errorf("Find(%q): expected data %d, got %d", test.path, test.data, node)
 			}
 		}
 		//assert tree has correct amount of nodes
@@ -234,8 +234,8 @@ func TestRadixTree_InsertCreatesNoEdgeWithEmptyString(t *testing.T) {
 			node, err := tree.Find(test.path)
 			if err != nil {
 				t.Errorf("Find(%q): unexpected error after insertion: %v", test.path, err)
-			} else if node.Data != test.data {
-				t.Errorf("Find(%q): expected data %d, got %d", test.path, test.data, node.Data)
+			} else if node != test.data {
+				t.Errorf("Find(%q): expected data %d, got %d", test.path, test.data, node)
 			}
 		}
 		//assert tree has correct amount of nodes
