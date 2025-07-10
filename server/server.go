@@ -41,8 +41,8 @@ func (s *HttpServer) nextReqIndex() uint64 {
 	return s.reqIndex
 }
 
-// AddRoutes searches for all files and directories under path and adds a handler for each of them to the server
-func (s *HttpServer) AddRoutes(path string) error {
+// AddFileRoutes searches for all files and directories under path and adds a handler for each of them to the server
+func (s *HttpServer) AddFileRoutes(path string) error {
 	files, err := common.ListFilesRecursive(path)
 	if err != nil {
 		panic(err)
@@ -98,6 +98,13 @@ func (s *HttpServer) addDirRoute(dir string) error {
 	}
 	err = s.insertRoute(path, http.GET, handler)
 	return err
+}
+
+func (s *HttpServer) AddHandler(route string, method http.Method, handler handlers.Handler) error {
+	if route == "" {
+		return fmt.Errorf("invalid route: can't be empty string")
+	}
+	return s.insertRoute(route, method, handler)
 }
 
 func (s *HttpServer) StartServing(ctx context.Context) error {

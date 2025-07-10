@@ -29,7 +29,7 @@ func main() {
 
 	//instantiate server
 	serv := server.NewHttpServer(4488)
-	err = serv.AddRoutes(pwd)
+	err = serv.AddFileRoutes(pwd)
 	if err != nil {
 		panic(err)
 	}
