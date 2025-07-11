@@ -174,3 +174,96 @@ func TestStreamedResponseWithDelay(t *testing.T) {
 	cfunc()
 	_ = <-servClosed
 }
+
+func TestStreamedResponseWithDelayAndBrotliAccept(t *testing.T) {
+	port := 8091 // Use a different test port
+	httpServer := server.NewHttpServer(port)
+
+	const testPath = "/stream-brotli"
+	seg1 := []byte("segment1-")
+	seg2 := []byte("segment2!")
+
+	handlerFn := handlers.HandlerFunc(func(ctx http.Context) error {
+		ctx.Response.Status = http.StatusOK
+		ctx.Response.AddHeader(http.Header{Name: "Content-Type", Value: "text/plain"})
+		ch := make(chan http.StreamedResponseChunk)
+		ctx.Response.Body = ch
+		go func() {
+			ch <- http.StreamedResponseChunk{Data: seg1}
+			time.Sleep(1 * time.Second)
+			ch <- http.StreamedResponseChunk{Data: seg2}
+			close(ch)
+		}()
+		return nil
+	})
+	compressionHandler := handlers.NewCompressionHandler()
+	handler := handlers.ComposeHandlers(handlerFn, compressionHandler)
+
+	err := httpServer.AddHandler(testPath, http.GET, handler)
+	if err != nil {
+		t.Fatalf("failed setting up handler: %v", err)
+	}
+	ctx, cfunc := context.WithCancel(context.Background())
+	servClosed := make(chan bool, 1)
+
+	go func() {
+		defer func() { servClosed <- true }()
+		err := httpServer.StartServing(ctx)
+		if err != nil {
+			t.Errorf("failed to serve: %v", err)
+			return
+		}
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: br\r\n\r\n", testPath)
+	_, err = conn.Write([]byte(req))
+	if err != nil {
+		t.Fatalf("failed to write request: %v", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	var response strings.Builder
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		response.WriteString(line)
+		if line == "\r\n" || line == "\n" {
+			break
+		}
+	}
+	// Read first segment
+	body1 := make([]byte, len(seg1))
+	_, err = reader.Read(body1)
+	if err != nil {
+		t.Fatalf("failed to read first segment: %v", err)
+	}
+	// Wait for the second segment (should be delayed)
+	body2 := make([]byte, len(seg2))
+	_, err = reader.Read(body2)
+	if err != nil {
+		t.Fatalf("failed to read second segment: %v", err)
+	}
+	response.Write(body1)
+	response.Write(body2)
+
+	body := response.String()
+
+	if !strings.Contains(body, string(seg1)) || !strings.Contains(body, string(seg2)) {
+		t.Errorf("expected streamed segments in response, got: %q", body)
+	}
+
+	if !strings.Contains(body, "Content-Encoding: br") {
+		t.Error("expected 'Content-Encoding: br' header but didn't find it")
+	}
+	cfunc()
+	_ = <-servClosed
+}

@@ -24,28 +24,32 @@ func (b brotliHandler) HandleRequest(ctx http.Context) error {
 	}
 
 	if c, ok := ctx.Response.Body.(chan http.StreamedResponseChunk); ok {
-		return b.handleChannel(ctx, c)
+		err := b.handleChannel(ctx, c)
+		if err != nil {
+			return err
+		}
+	} else { //NOT a channel, do normal stuff
+		bbuf, err := castBody(ctx.Response.Body)
+		if err != nil {
+			return err
+		}
+		newBuf, err := b.compressBody(bbuf)
+		if err != nil {
+			ctx.Response.AddHeader(http.Header{
+				Name:  "Content-Length",
+				Value: strconv.Itoa(len(newBuf)),
+			})
+			return err
+		}
+		//assign body to response
+		ctx.Response.Body = newBuf
 	}
 
-	bbuf, err := castBody(ctx.Response.Body)
-	if err != nil {
-		return err
-	}
-	newBuf, err := b.compressBody(bbuf)
-	if err != nil {
-		return err
-	}
-
-	//assign body to response and set compression header
+	//set compression header
 	ctx.Response.AddHeader(http.Header{
 		Name:  "Content-Encoding",
 		Value: "br",
 	})
-	ctx.Response.AddHeader(http.Header{
-		Name:  "Content-Length",
-		Value: strconv.Itoa(len(newBuf)),
-	})
-	ctx.Response.Body = newBuf
 	return nil
 }
 
