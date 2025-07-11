@@ -267,3 +267,84 @@ func TestStreamedResponseWithDelayAndBrotliAccept(t *testing.T) {
 	cfunc()
 	_ = <-servClosed
 }
+
+func TestKeepAliveSupport(t *testing.T) {
+	port := 8092 // Use a different test port
+	httpServer := server.NewHttpServer(port)
+
+	const testPath = "/test"
+	const expectedBody = "Hello, test!"
+	err := httpServer.AddHandler(testPath, http.GET, handlers.HandlerFunc(func(ctx http.Context) error {
+		ctx.Response.Status = http.StatusOK
+		ctx.Response.Body = expectedBody
+		ctx.Response.AddHeader(http.Header{Name: "Content-Type", Value: "text/plain"})
+		return nil
+	}))
+	if err != nil {
+		t.Fatalf("failed setting up handler: %v", err)
+	}
+	ctx, cfunc := context.WithCancel(context.Background())
+	servClosed := make(chan bool, 1)
+
+	// Start server in background
+	go func() {
+		defer func() { servClosed <- true }()
+		err := httpServer.StartServing(ctx)
+		if err != nil {
+			t.Errorf("failed to serve: %v", err)
+			return
+		}
+	}()
+	// Wait for server to start
+	time.Sleep(200 * time.Millisecond)
+
+	conn, err := net.Dial("tcp", "localhost:8092")
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	// First request with keep-alive
+	request1 := "GET /test HTTP/1.1\r\n" +
+		"Host: localhost\r\n" +
+		"Connection: keep-alive\r\n\r\n"
+
+	// Second request with close to terminate connection
+	request2 := "GET /test HTTP/1.1\r\n" +
+		"Host: localhost\r\n" +
+		"Connection: close\r\n\r\n"
+
+	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	_, err = conn.Write([]byte(request1))
+	if err != nil {
+		t.Fatalf("Failed to write first request: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond) // brief pause
+
+	_, err = conn.Write([]byte(request2))
+	if err != nil {
+		t.Fatalf("Failed to write second request: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	respBuf := new(strings.Builder)
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		respBuf.WriteString(scanner.Text())
+		respBuf.WriteString("\n")
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("Error reading response: %v", err)
+	}
+
+	response := respBuf.String()
+	count := strings.Count(response, "HTTP/1.1")
+	if count < 2 {
+		t.Fatalf("expected 2 HTTP responses, got %d\nFull response:\n%s", count, response)
+	}
+
+	t.Logf("✅ Keep-Alive is working correctly: received %d responses", count)
+	cfunc()
+	_ = <-servClosed
+}
