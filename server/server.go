@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -153,23 +154,42 @@ func (s *HttpServer) handleConnection(conn net.Conn) {
 		}
 	}(conn)
 
+	//open only ONE reader per connection, ever, as we need to be able to check here
+	//whether we should continue reading (i.e. there is another request)
+
+	//wrap connection in a buffered scanner
+	r := bufio.NewReader(conn)
+	scan := bufio.NewScanner(r)
+
+	lastReqTS := time.Now()
 	//handle keep-alive: only exit this loop whenever we get Connection: close, error out, time out or HTTP/1.0
 	for {
-		shouldClose := s.handleTCPMessage(conn)
-		if shouldClose {
-			break
+		if scan.Scan() {
+			lastReqTS = time.Now()
+			shouldClose := s.handleTCPMessage(conn, r, scan)
+			if shouldClose {
+				break
+			}
+		} else {
+			//TODO: make timeout configurable
+			timeout := 10 * time.Second
+			//wait 100ms, try again, if timeout: break
+			if time.Now().After(lastReqTS.Add(timeout)) {
+				//timed out, close connection
+				break
+			}
 		}
 	}
 }
 
-func (s *HttpServer) handleTCPMessage(conn net.Conn) bool {
+func (s *HttpServer) handleTCPMessage(conn net.Conn, r *bufio.Reader, scan *bufio.Scanner) bool {
 	idx := s.nextReqIndex()
 	//create an HTTP context with an empty response for the connection
 	ctx := http.NewContext(conn, idx)
 
 	//parse the request
 	var err error
-	ctx.Request, err = http.ParseRequest(ctx)
+	ctx.Request, err = http.ParseRequest(ctx, r, scan)
 	//queue writing response to connection (we must always answer with at least something, no matter how hard we error out)
 	defer writeResponseToConn(ctx, 0)
 
@@ -249,6 +269,7 @@ func writeResponseToConn(ctx http.Context, depth int) {
 	}
 	err := ctx.Response.WriteToConn(ctx.Conn)
 	if err == nil {
+		slog.Debug("finished writing response to conn", "index", ctx.Index)
 		return
 	}
 	if errors.Is(err, net.ErrClosed) {

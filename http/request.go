@@ -45,62 +45,23 @@ func (e errInvalidHttpVersion) Error() string {
 	return fmt.Sprintf("invalid HTTP version: %s", e.Version)
 }
 
-func ParseRequest(ctx Context) (*Request, error) {
+func ParseRequest(ctx Context, r *bufio.Reader, s *bufio.Scanner) (*Request, error) {
 	//set a 5s read timeout on the underlying connection
 	err := ctx.Conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't set read deadline on conn when parsing request")
 	}
-	//wrap connection in a buffered scanner
-	r := bufio.NewReader(ctx.Conn)
-	s := bufio.NewScanner(r)
 
 	request := &Request{}
-	buf := []string{}
-	for s.Scan() {
-		line := s.Text()
-		if line == "" {
-			break
-		}
-		buf = append(buf, line+"\n")
-	}
-	//parse method, path, version and headers
-	if len(buf) == 0 {
-		//invalid request
-		ctx.AdditionalData["BadRequestReason"] = "Empty request"
-		return nil, fmt.Errorf("%w: empty buffer", ErrInvalidRequest)
-	}
-	firstLineParts := strings.Split(buf[0], " ")
-	if len(firstLineParts) < 3 {
-		ctx.AdditionalData["BadRequestReason"] = "Invalid request format"
-		return nil, fmt.Errorf("%w: request line is %d parts long", ErrInvalidRequest, len(firstLineParts))
-	}
-	request.Method, err = parseMethod(firstLineParts[0])
+	buf, err := readRequestLineAndHeaders(ctx, s)
 	if err != nil {
-		ctx.AdditionalData["BadRequestReason"] = "Invalid HTTP method"
-		return nil, fmt.Errorf("unable to parse request: %w", err)
-	}
-	request.Path = firstLineParts[1]
-	request.Version, err = parseVersion(firstLineParts[2])
-	if err != nil {
-		ctx.AdditionalData["BadRequestReason"] = "Invalid HTTP version"
-		return nil, fmt.Errorf("unable to parse request: %w", err)
+		return nil, err
 	}
 
-	//parse headers
-	request.Headers = make(map[string]Header)
-	//we assume every line after the first line is a header
-	//until we find an empty line
-	for _, line := range buf[1:] {
-		if line == "\n" {
-			break
-		}
-		s := strings.SplitN(line, ":", 2)
-		name := strings.TrimSpace(s[0])
-		value := strings.TrimSpace(s[1])
-		request.Headers[name] = Header{
-			name, value,
-		}
+	// parse method, path, version and headers
+	err = parseRequestLineAndHeaders(buf, request, ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	//determine if we need to look for a body too
@@ -130,6 +91,66 @@ func ParseRequest(ctx Context) (*Request, error) {
 
 	return request, nil
 
+}
+
+func readRequestLineAndHeaders(ctx Context, s *bufio.Scanner) ([]string, error) {
+	buf := []string{}
+	//we already advanced the scanner by one token when checking if there was another request in the conn
+	//so we must read the first token right away before calling s.Scan again
+	for {
+		line := s.Text()
+		if line == "" {
+			break
+		}
+		buf = append(buf, line+"\n")
+		if !s.Scan() {
+			break
+		}
+	}
+	if len(buf) == 0 {
+		//invalid request
+		ctx.AdditionalData["BadRequestReason"] = "Empty request"
+		return nil, fmt.Errorf("%w: empty buffer", ErrInvalidRequest)
+	}
+	return buf, nil
+}
+
+func parseRequestLineAndHeaders(buf []string, request *Request, ctx Context) error {
+	//parse method, path, version and headers
+	firstLineParts := strings.Split(buf[0], " ")
+	if len(firstLineParts) < 3 {
+		ctx.AdditionalData["BadRequestReason"] = "Invalid request format"
+		return fmt.Errorf("%w: request line is %d parts long", ErrInvalidRequest, len(firstLineParts))
+	}
+	var err error
+	request.Method, err = parseMethod(firstLineParts[0])
+	if err != nil {
+		ctx.AdditionalData["BadRequestReason"] = "Invalid HTTP method"
+		return fmt.Errorf("unable to parse request: %w", err)
+	}
+	request.Path = firstLineParts[1]
+	request.Version, err = parseVersion(firstLineParts[2])
+	if err != nil {
+		ctx.AdditionalData["BadRequestReason"] = "Invalid HTTP version"
+		return fmt.Errorf("unable to parse request: %w", err)
+	}
+
+	//parse headers
+	request.Headers = make(map[string]Header)
+	//we assume every line after the first line is a header
+	//until we find an empty line
+	for _, line := range buf[1:] {
+		if line == "\n" {
+			break
+		}
+		s := strings.SplitN(line, ":", 2)
+		name := strings.TrimSpace(s[0])
+		value := strings.TrimSpace(s[1])
+		request.Headers[name] = Header{
+			name, value,
+		}
+	}
+	return nil
 }
 
 func handleContentLength(request *Request, r *bufio.Reader) error {

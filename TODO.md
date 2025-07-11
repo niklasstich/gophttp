@@ -11,6 +11,8 @@ sooner rather than later
   - [ ] optional flag to precompress static routes 
   - [ ] replace brotli package with my own brotli implementation
 - [x] support `Connection: keep-alive`
+- [ ] limit concurrent connections per client (ip address, check for proxy headers!)
+- [ ] introduce configuration (probably YAML)
 - [ ] chunked transfer responses (with channels)
 - [ ] write cache headers on file handler responses
 - [ ] CORS headers
