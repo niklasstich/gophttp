@@ -1,7 +1,10 @@
+//go:build test
+
 package server_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -148,13 +151,13 @@ func TestStreamedResponseWithDelay(t *testing.T) {
 		}
 	}
 	// Read first segment
-	body1 := make([]byte, len(seg1))
+	body1 := make([]byte, len(seg1)+4)
 	_, err = reader.Read(body1)
 	if err != nil {
 		t.Fatalf("failed to read first segment: %v", err)
 	}
 	// Wait for the second segment (should be delayed)
-	body2 := make([]byte, len(seg2))
+	body2 := make([]byte, len(seg2)+4)
 	_, err = reader.Read(body2)
 	if err != nil {
 		t.Fatalf("failed to read second segment: %v", err)
@@ -164,7 +167,7 @@ func TestStreamedResponseWithDelay(t *testing.T) {
 
 	body := response.String()
 
-	if !strings.Contains(body, string(seg1)) || !strings.Contains(body, string(seg2)) {
+	if !strings.Contains(body, "9\r\n"+string(seg1)) || !strings.Contains(body, "9\r\n"+string(seg2)) {
 		t.Errorf("expected streamed segments in response, got: %q", body)
 	}
 
@@ -176,12 +179,19 @@ func TestStreamedResponseWithDelay(t *testing.T) {
 }
 
 func TestStreamedResponseWithDelayAndBrotliAccept(t *testing.T) {
+	timeFunc := func() time.Time {
+		return time.Date(2025, 7, 13, 11, 57, 50, 0, time.UTC)
+	}
+
+	handlers.SetTimeFunc(timeFunc)
+
 	port := 8091 // Use a different test port
 	httpServer := server.NewHttpServer(port)
 
 	const testPath = "/stream-brotli"
-	seg1 := []byte("segment1-")
-	seg2 := []byte("segment2!")
+	seg1 := bytes.Repeat([]byte("L"), 256)
+	seg2 := []byte("\n\n")
+	seg3 := bytes.Repeat([]byte("F"), 256)
 
 	handlerFn := handlers.HandlerFunc(func(ctx http.Context) error {
 		ctx.Response.Status = http.StatusOK
@@ -189,10 +199,12 @@ func TestStreamedResponseWithDelayAndBrotliAccept(t *testing.T) {
 		ch := make(chan http.StreamedResponseChunk)
 		ctx.Response.Body = ch
 		go func() {
+			defer close(ch)
 			ch <- http.StreamedResponseChunk{Data: seg1}
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 			ch <- http.StreamedResponseChunk{Data: seg2}
-			close(ch)
+			time.Sleep(100 * time.Millisecond)
+			ch <- http.StreamedResponseChunk{Data: seg3}
 		}()
 		return nil
 	})
@@ -229,41 +241,37 @@ func TestStreamedResponseWithDelayAndBrotliAccept(t *testing.T) {
 	}
 
 	reader := bufio.NewReader(conn)
-	var response strings.Builder
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			break
-		}
-		response.WriteString(line)
-		if line == "\r\n" || line == "\n" {
-			break
-		}
-	}
-	// Read first segment
-	body1 := make([]byte, len(seg1))
+	//brotli buffers all segments before compressing, meaning we only get one big compressed chunk
+	body1 := make([]byte, 203)
 	_, err = reader.Read(body1)
 	if err != nil {
 		t.Fatalf("failed to read first segment: %v", err)
 	}
-	// Wait for the second segment (should be delayed)
-	body2 := make([]byte, len(seg2))
-	_, err = reader.Read(body2)
-	if err != nil {
-		t.Fatalf("failed to read second segment: %v", err)
+	expectedBytes := []byte{
+		0x48, 0x54, 0x54, 0x50, 0x2f, 0x31, 0x2e, 0x31, 0x20, 0x32, 0x30, 0x30, 0x20, 0x4f, 0x4b, 0x0a,
+		0x43, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x3a, 0x20, 0x6b, 0x65, 0x65, 0x70,
+		0x2d, 0x61, 0x6c, 0x69, 0x76, 0x65, 0x0a, 0x43, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x2d, 0x45,
+		0x6e, 0x63, 0x6f, 0x64, 0x69, 0x6e, 0x67, 0x3a, 0x20, 0x62, 0x72, 0x0a, 0x43, 0x6f, 0x6e, 0x74,
+		0x65, 0x6e, 0x74, 0x2d, 0x54, 0x79, 0x70, 0x65, 0x3a, 0x20, 0x74, 0x65, 0x78, 0x74, 0x2f, 0x70,
+		0x6c, 0x61, 0x69, 0x6e, 0x0a, 0x44, 0x61, 0x74, 0x65, 0x3a, 0x20, 0x53, 0x75, 0x6e, 0x2c, 0x20,
+		0x31, 0x33, 0x20, 0x4a, 0x75, 0x6c, 0x20, 0x32, 0x30, 0x32, 0x35, 0x20, 0x31, 0x31, 0x3a, 0x35,
+		0x37, 0x3a, 0x35, 0x30, 0x20, 0x47, 0x4d, 0x54, 0x0a, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x3a,
+		0x20, 0x67, 0x6f, 0x70, 0x68, 0x74, 0x74, 0x70, 0x2f, 0x30, 0x2e, 0x31, 0x0a, 0x54, 0x72, 0x61,
+		0x6e, 0x73, 0x66, 0x65, 0x72, 0x2d, 0x45, 0x6e, 0x63, 0x6f, 0x64, 0x69, 0x6e, 0x67, 0x3a, 0x20,
+		0x63, 0x68, 0x75, 0x6e, 0x6b, 0x65, 0x64, 0x0a, 0x0a, 0x31, 0x31, 0x0d, 0x0a, 0x1b, 0x01, 0x02,
+		0x00, 0x24, 0x15, 0x8c, 0x98, 0x6a, 0xb1, 0xcd, 0x0a, 0x40, 0xe4, 0x3e, 0x47, 0x00, 0x0d, 0x0a,
+		0x30, 0x0d, 0x0a, 0x0d, 0x0a,
 	}
-	response.Write(body1)
-	response.Write(body2)
 
-	body := response.String()
-
-	if !strings.Contains(body, string(seg1)) || !strings.Contains(body, string(seg2)) {
-		t.Errorf("expected streamed segments in response, got: %q", body)
+	if len(body1) < len(expectedBytes) {
+		t.Errorf("expected len %d but body is only %d long", len(expectedBytes), len(body1))
+	}
+	for i, ex := range expectedBytes {
+		if ex != body1[i] {
+			t.Errorf("expected byte %d but got %d at idx %d", ex, body1[i], i)
+		}
 	}
 
-	if !strings.Contains(body, "Content-Encoding: br") {
-		t.Error("expected 'Content-Encoding: br' header but didn't find it")
-	}
 	cfunc()
 	_ = <-servClosed
 }

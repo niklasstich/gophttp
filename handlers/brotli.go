@@ -54,16 +54,13 @@ func (b brotliHandler) HandleRequest(ctx http.Context) error {
 }
 
 func (b brotliHandler) handleChannel(ctx http.Context, c chan http.StreamedResponseChunk) error {
-	//TODO:
-	//1. create target channel and set in ctx
-	//2. start loop in goroutine:
-	//2.1. read from c
-	//2.2. get brotli bytes
-	//2.3.1 if error, write to err channel
-	//2.3.3 otherwise write brotli bytes to target channel
-	//3. wait on err channel and return
 	tChan := make(chan http.StreamedResponseChunk, 1)
 	ctx.Response.Body = tChan
+	var newBuf bytes.Buffer
+	writer := brotli.NewWriterOptions(&newBuf, brotli.WriterOptions{
+		Quality: b.quality,
+		LGWin:   0,
+	})
 	go func() {
 		defer close(tChan)
 		for chunk := range c {
@@ -71,13 +68,20 @@ func (b brotliHandler) handleChannel(ctx http.Context, c chan http.StreamedRespo
 				tChan <- chunk
 				return
 			}
-			compBuf, err := b.compressBody(chunk.Data)
+			_, err := writer.Write(chunk.Data)
 			if err != nil {
 				tChan <- http.StreamedResponseChunk{Err: err}
 				return
 			}
-			tChan <- http.StreamedResponseChunk{Data: compBuf}
 		}
+		err := writer.Close()
+		chunk := http.StreamedResponseChunk{}
+		if err != nil {
+			chunk.Err = err
+		} else {
+			chunk.Data = newBuf.Bytes()
+		}
+		tChan <- chunk
 	}()
 	return nil
 }

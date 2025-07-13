@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"gophttp/common/ascii"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,13 +35,7 @@ func (r Response) WriteToConn(conn net.Conn) error {
 		return err
 	}
 	//write all headers
-	for _, header := range r.Headers {
-		_, err = w.WriteString(fmt.Sprintf("%s: %s\n", header.Name, strings.TrimRight(header.Value, "\n")))
-		if err != nil {
-			return err
-		}
-	}
-	_, err = w.WriteString("\n")
+	err = r.writeHeaders(w)
 	if err != nil {
 		return err
 	}
@@ -73,12 +69,13 @@ func (r Response) WriteToConn(conn net.Conn) error {
 			select {
 			case chunk, more := <-c:
 				if !more {
+					err = handleChunk(StreamedResponseChunk{Data: make([]byte, 0)}, w)
+					if err != nil {
+						return err
+					}
 					return w.Flush()
 				}
-				if chunk.Err != nil {
-					return chunk.Err
-				}
-				_, err := w.Write(chunk.Data)
+				err = handleChunk(chunk, w)
 				if err != nil {
 					return err
 				}
@@ -92,4 +89,47 @@ func (r Response) WriteToConn(conn net.Conn) error {
 	}
 
 	return w.Flush()
+}
+
+func (r Response) writeHeaders(w *bufio.Writer) error {
+	var err error
+	for _, header := range r.Headers.Sorted() {
+		_, err = w.WriteString(fmt.Sprintf("%s: %s\n", header.Name, strings.TrimRight(header.Value, "\n")))
+		if err != nil {
+			return err
+		}
+	}
+	_, err = w.WriteString("\n")
+	return err
+}
+
+func handleChunk(chunk StreamedResponseChunk, w *bufio.Writer) error {
+	if chunk.Err != nil {
+		return chunk.Err
+	}
+	//write length of chunk
+	chunkLen := len(chunk.Data)
+	chunkLenHex := strconv.FormatInt(int64(chunkLen), 16)
+	_, err := w.Write([]byte(chunkLenHex))
+	if err != nil {
+		return err
+	}
+	//write CR+LF
+	err = writeCRLF(w)
+	if err != nil {
+		return err
+	}
+	//write chunk
+	_, err = w.Write(chunk.Data)
+	if err != nil {
+		return err
+	}
+	//write CR+LF
+	err = writeCRLF(w)
+	return err
+}
+
+func writeCRLF(w *bufio.Writer) error {
+	_, err := w.Write([]byte{ascii.CR, ascii.LF})
+	return err
 }
