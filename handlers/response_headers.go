@@ -16,13 +16,15 @@ var ServerHeader = http.Header{
 	Value: fmt.Sprintf("%s/%s", SERVER_NAME, VERSION),
 }
 
+var timeFunc = time.Now
+
 func ResponseHeadersHandler(ctx http.Context) error {
 	//Server
 	ctx.Response.AddHeader(ServerHeader)
 	//Date
 	ctx.Response.AddHeader(http.Header{
 		Name:  "Date",
-		Value: common.ToHttpDateFormat(time.Now()),
+		Value: common.ToHttpDateFormat(timeFunc()),
 	})
 	_, bodyIsChannel := ctx.Response.Body.(chan http.StreamedResponseChunk)
 	if bodyIsChannel {
