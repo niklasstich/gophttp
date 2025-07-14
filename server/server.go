@@ -41,8 +41,8 @@ func (s *HttpServer) nextReqIndex() uint64 {
 	return s.reqIndex
 }
 
-// AddRoutes searches for all files and directories under path and adds a handler for each of them to the server
-func (s *HttpServer) AddRoutes(path string) error {
+// AddFileRoutes searches for all files and directories under path and adds a handler for each of them to the server
+func (s *HttpServer) AddFileRoutes(path string) error {
 	files, err := common.ListFilesRecursive(path)
 	if err != nil {
 		panic(err)
@@ -100,6 +100,13 @@ func (s *HttpServer) addDirRoute(dir string) error {
 	return err
 }
 
+func (s *HttpServer) AddHandler(route string, method http.Method, handler handlers.Handler) error {
+	if route == "" {
+		return fmt.Errorf("invalid route: can't be empty string")
+	}
+	return s.insertRoute(route, method, handler)
+}
+
 func (s *HttpServer) StartServing(ctx context.Context) error {
 	sock, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
 	tcpSock := sock.(*net.TCPListener)
@@ -110,7 +117,7 @@ func (s *HttpServer) StartServing(ctx context.Context) error {
 	defer func(sock net.Listener) {
 		err := sock.Close()
 		if err != nil {
-			slog.Error("error closing socket", err)
+			slog.Error("error closing socket", "err", err.Error())
 		}
 	}(sock)
 
@@ -129,7 +136,7 @@ func (s *HttpServer) StartServing(ctx context.Context) error {
 func (s *HttpServer) connectLoop(tcpSock *net.TCPListener) {
 	err := tcpSock.SetDeadline(time.Now().Add(1 * time.Second))
 	if err != nil {
-		slog.Error("error setting socket deadline", err)
+		slog.Error("error setting socket deadline", "err", err.Error())
 		return
 	}
 	conn, err := tcpSock.Accept()
@@ -139,7 +146,7 @@ func (s *HttpServer) connectLoop(tcpSock *net.TCPListener) {
 			//ignore timeout errors as they are expected
 			return
 		}
-		slog.Error("failed accepting tcp socket connection", err)
+		slog.Error("failed accepting tcp socket connection", "err", err.Error())
 		return
 	}
 	go s.handleConnection(conn)
@@ -150,7 +157,7 @@ func (s *HttpServer) handleConnection(conn net.Conn) {
 	defer func(conn net.Conn) {
 		err := conn.Close()
 		if err != nil {
-			slog.Error("failed closing socket", err)
+			slog.Error("failed closing socket", "err", err.Error())
 		}
 	}(conn)
 

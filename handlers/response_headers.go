@@ -16,29 +16,41 @@ var ServerHeader = http.Header{
 	Value: fmt.Sprintf("%s/%s", SERVER_NAME, VERSION),
 }
 
+var timeFunc = time.Now
+
 func ResponseHeadersHandler(ctx http.Context) error {
 	//Server
 	ctx.Response.AddHeader(ServerHeader)
 	//Date
 	ctx.Response.AddHeader(http.Header{
 		Name:  "Date",
-		Value: common.ToHttpDateFormat(time.Now()),
+		Value: common.ToHttpDateFormat(timeFunc()),
 	})
-	if !ctx.Response.Headers.HasHeader("Content-Length") {
-		var length int
-		switch v := ctx.Response.Body.(type) {
-		case string:
-			length = len(v)
-		case []byte:
-			length = len(v)
-		default:
-			//TODO: figure out what to do
-			return nil
-		}
+	_, bodyIsChannel := ctx.Response.Body.(chan http.StreamedResponseChunk)
+	if bodyIsChannel {
+		//delete content-length, add transfer-encoding: chunked instead
+		delete(ctx.Response.Headers, "Content-Length")
 		ctx.Response.AddHeader(http.Header{
-			Name:  "Content-Length",
-			Value: strconv.Itoa(length),
+			Name:  "Transfer-Encoding",
+			Value: "chunked",
 		})
+	} else {
+		if !ctx.Response.Headers.HasHeader("Content-Length") {
+			var length int
+			switch v := ctx.Response.Body.(type) {
+			case string:
+				length = len(v)
+			case []byte:
+				length = len(v)
+			default:
+				//TODO: figure out what to do
+				return nil
+			}
+			ctx.Response.AddHeader(http.Header{
+				Name:  "Content-Length",
+				Value: strconv.Itoa(length),
+			})
+		}
 	}
 
 	tryWriteConnectionHeader(ctx)

@@ -22,25 +22,67 @@ func (b brotliHandler) HandleRequest(ctx http.Context) error {
 	if !reqAcceptsBrotli(ctx.Request) {
 		return nil
 	}
-	bbuf, err := castBody(ctx.Response.Body)
-	if err != nil {
-		return err
-	}
-	newBuf, err := b.compressBody(bbuf)
-	if err != nil {
-		return err
+
+	if c, ok := ctx.Response.Body.(chan http.StreamedResponseChunk); ok {
+		err := b.handleChannel(ctx, c)
+		if err != nil {
+			return err
+		}
+	} else { //NOT a channel, do normal stuff
+		bbuf, err := castBody(ctx.Response.Body)
+		if err != nil {
+			return err
+		}
+		newBuf, err := b.compressBody(bbuf)
+		if err != nil {
+			ctx.Response.AddHeader(http.Header{
+				Name:  "Content-Length",
+				Value: strconv.Itoa(len(newBuf)),
+			})
+			return err
+		}
+		//assign body to response
+		ctx.Response.Body = newBuf
 	}
 
-	//assign body to response and set compression header
+	//set compression header
 	ctx.Response.AddHeader(http.Header{
 		Name:  "Content-Encoding",
 		Value: "br",
 	})
-	ctx.Response.AddHeader(http.Header{
-		Name:  "Content-Length",
-		Value: strconv.Itoa(len(newBuf)),
+	return nil
+}
+
+func (b brotliHandler) handleChannel(ctx http.Context, c chan http.StreamedResponseChunk) error {
+	tChan := make(chan http.StreamedResponseChunk, 1)
+	ctx.Response.Body = tChan
+	var newBuf bytes.Buffer
+	writer := brotli.NewWriterOptions(&newBuf, brotli.WriterOptions{
+		Quality: b.quality,
+		LGWin:   0,
 	})
-	ctx.Response.Body = newBuf
+	go func() {
+		defer close(tChan)
+		for chunk := range c {
+			if chunk.Err != nil {
+				tChan <- chunk
+				return
+			}
+			_, err := writer.Write(chunk.Data)
+			if err != nil {
+				tChan <- http.StreamedResponseChunk{Err: err}
+				return
+			}
+		}
+		err := writer.Close()
+		chunk := http.StreamedResponseChunk{}
+		if err != nil {
+			chunk.Err = err
+		} else {
+			chunk.Data = newBuf.Bytes()
+		}
+		tChan <- chunk
+	}()
 	return nil
 }
 

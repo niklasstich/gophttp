@@ -29,12 +29,12 @@ func main() {
 
 	//instantiate server
 	serv := server.NewHttpServer(4488)
-	err = serv.AddRoutes(pwd)
+	err = serv.AddFileRoutes(pwd)
 	if err != nil {
 		panic(err)
 	}
 	err = serv.StartServing(ctx)
 	if err != nil {
-		slog.Error("error in server thread", err)
+		slog.Error("error in server thread", "err", err.Error())
 	}
 }
