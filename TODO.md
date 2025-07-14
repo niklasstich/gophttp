@@ -13,7 +13,7 @@ sooner rather than later
 - [x] support `Connection: keep-alive`
 - [ ] limit concurrent connections per client (ip address, check for proxy headers!)
 - [ ] introduce configuration (probably YAML)
-- [ ] chunked transfer responses (with channels)
+- [x] chunked transfer responses (with channels)
 - [ ] write cache headers on file handler responses
 - [ ] CORS headers
 - [ ] support CORS preflight requests (OPTIONS)
