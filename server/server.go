@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -53,14 +54,16 @@ func (s *HttpServer) AddFileRoutes(path string) error {
 	}
 
 	for _, file := range files {
-		err = s.addFileRoute(file)
+		joined := filepath.Join(path, file)
+		err = s.addFileRoute(joined)
 		if err != nil {
 			return err
 		}
 	}
 
 	for _, dir := range dirs {
-		err = s.addDirRoute(dir)
+		joined := filepath.Join(path, dir)
+		err = s.addDirRoute(joined)
 		if err != nil {
 			return err
 		}
