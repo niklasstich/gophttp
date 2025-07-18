@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -354,5 +356,67 @@ func TestKeepAliveSupport(t *testing.T) {
 
 	t.Logf("✅ Keep-Alive is working correctly: received %d responses", count)
 	cfunc()
+	_ = <-servClosed
+}
+
+func TestAddFileRoutesWithAbsolutePath(t *testing.T) {
+	port := 8093
+	httpServer := server.NewHttpServer(port)
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "hello.txt")
+	const fileContent = "hello from tmp"
+	err := os.WriteFile(filePath, []byte(fileContent), 0o644)
+	if err != nil {
+		t.Fatalf("failed creating temp file: %v", err)
+	}
+
+	if err := httpServer.AddFileRoutes(tmpDir); err != nil {
+		t.Fatalf("failed adding file routes: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	servClosed := make(chan bool, 1)
+	go func() {
+		defer func() { servClosed <- true }()
+		if err := httpServer.StartServing(ctx); err != nil {
+			t.Errorf("failed to serve: %v", err)
+		}
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+
+	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	route := http.GetHttpPathForFilepath(filePath)
+	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: localhost\r\n\r\n", route)
+	if _, err := conn.Write([]byte(req)); err != nil {
+		t.Fatalf("failed to write request: %v", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	var response strings.Builder
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		response.WriteString(line)
+		if line == "\r\n" || line == "\n" {
+			break
+		}
+	}
+	body, _ := reader.ReadString('\n')
+	response.WriteString(body)
+
+	if !strings.Contains(response.String(), fileContent) {
+		t.Errorf("expected file content in response, got: %s", response.String())
+	}
+
+	cancel()
 	_ = <-servClosed
 }
